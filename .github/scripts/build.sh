@@ -17,28 +17,15 @@
 # Exit when any command fails.
 set -e
 
-PYTHON_VERSION=${PYTHON_VERSION:-2.7}
+PYTHON_VERSION=${PYTHON_VERSION:-3.7}
 
-pip install --upgrade setuptools pip
-pip install --upgrade pylint pytest pytest-pylint pytest-runner
-pip install termcolor
-pip install hypothesis python-Levenshtein
-pip install mock
-python setup.py develop
+pip install -e .[test]
 python -m pytest  # Run the tests without IPython.
 pip install ipython
 python -m pytest  # Now run the tests with IPython.
 pylint fire --ignore=test_components_py3.py,parser_fuzz_test.py,console
-if [[ ${PYTHON_VERSION} == 2.7 || ${PYTHON_VERSION} == 3.7 ]]; then
-  pip install pytype;
+if [[ ${PYTHON_VERSION} == 3.12 ]]; then
+  # Run type-checking
+  pip install ty
+  python -m ty check --python $(which python) --exclude fire/test_components_py3.py --exclude fire/console/ --exclude fire/formatting_windows.py
 fi
-# Run type-checking, excluding files that define or use py3 features in py2.
-if [[ ${PYTHON_VERSION} == 2.7 ]]; then
-  pytype -x \
-    fire/fire_test.py \
-    fire/inspectutils_test.py \
-    fire/test_components_py3.py;
-elif [[ ${PYTHON_VERSION} == 3.7 ]]; then
-  pytype;
-fi
-

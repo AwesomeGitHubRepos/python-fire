@@ -29,12 +29,10 @@ Help screens are shown in a less-style console view, and contain detailed help
 information.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import annotations
 
+import collections
 import itertools
-import sys
 
 from fire import completion
 from fire import custom_descriptions
@@ -89,13 +87,14 @@ def HelpText(component, trace=None, verbose=False):
       + usage_details_sections
       + notes_sections
   )
+  valid_sections = [section for section in sections if section is not None]
   return '\n\n'.join(
-      _CreateOutputSection(*section)
-      for section in sections if section is not None
+      _CreateOutputSection(name, content)
+      for name, content in valid_sections
   )
 
 
-def _NameSection(component, info, trace=None, verbose=False):
+def _NameSection(component, info, trace=None, verbose=False) -> tuple[str, str]:
   """The "Name" section of the help string."""
 
   # Only include separators in the name in verbose mode.
@@ -110,14 +109,14 @@ def _NameSection(component, info, trace=None, verbose=False):
                                              LINE_LENGTH)
 
   if summary:
-    text = current_command + ' - ' + summary
+    text = f'{current_command} - {summary}'
   else:
     text = current_command
   return ('NAME', text)
 
 
 def _SynopsisSection(component, actions_grouped_by_kind, spec, metadata,
-                     trace=None):
+                     trace=None) -> tuple[str, str]:
   """The "Synopsis" section of the help string."""
   current_command = _GetCurrentCommand(trace=trace, include_separators=True)
 
@@ -136,15 +135,11 @@ def _SynopsisSection(component, actions_grouped_by_kind, spec, metadata,
       continuations.append(trace.separator)
   continuation = ' | '.join(continuations)
 
-  synopsis_template = '{current_command} {continuation}'
-  text = synopsis_template.format(
-      current_command=current_command,
-      continuation=continuation)
-
+  text = f'{current_command} {continuation}'
   return ('SYNOPSIS', text)
 
 
-def _DescriptionSection(component, info):
+def _DescriptionSection(component, info) -> tuple[str, str] | None:
   """The "Description" sections of the help string.
 
   Args:
@@ -172,9 +167,25 @@ def _DescriptionSection(component, info):
     return None
 
 
-def _CreateKeywordOnlyFlagItem(flag, docstring_info, spec):
+def _CreateKeywordOnlyFlagItem(flag, docstring_info, spec, short_arg):
   return _CreateFlagItem(
-      flag, docstring_info, spec, required=flag not in spec.kwonlydefaults)
+      flag, docstring_info, spec, required=flag not in spec.kwonlydefaults,
+      short_arg=short_arg)
+
+
+def _GetShortFlags(flags):
+  """Gets a list of single-character flags that uniquely identify a flag.
+
+  Args:
+    flags: list of strings representing flags
+
+  Returns:
+    List of single character short flags,
+    where the character occurred at the start of a flag once.
+  """
+  short_flags = [f[0] for f in flags]
+  short_flag_counts = collections.Counter(short_flags)
+  return [v for v in short_flags if short_flag_counts[v] == 1]
 
 
 def _ArgsAndFlagsSections(info, spec, metadata):
@@ -209,25 +220,44 @@ def _ArgsAndFlagsSections(info, spec, metadata):
           ('NOTES', 'You can also use flags syntax for POSITIONAL ARGUMENTS')
       )
 
+  unique_short_args = _GetShortFlags(args_with_defaults)
   positional_flag_items = [
-      _CreateFlagItem(flag, docstring_info, spec, required=False)
+      _CreateFlagItem(
+          flag, docstring_info, spec, required=False,
+          short_arg=flag[0] in unique_short_args
+      )
       for flag in args_with_defaults
   ]
+
+  unique_short_kwonly_flags = _GetShortFlags(spec.kwonlyargs)
   kwonly_flag_items = [
-      _CreateKeywordOnlyFlagItem(flag, docstring_info, spec)
+      _CreateKeywordOnlyFlagItem(
+          flag, docstring_info, spec,
+          short_arg=flag[0] in unique_short_kwonly_flags
+      )
       for flag in spec.kwonlyargs
   ]
   flag_items = positional_flag_items + kwonly_flag_items
 
   if spec.varkw:
     # Include kwargs documented via :key param:
-    flag_string = '--{name}'
     documented_kwargs = []
-    for flag in docstring_info.args or []:
+
+    # add short flags if possible
+    flags = docstring_info.args or []
+    flag_names = [f.name for f in flags]
+    unique_short_flags = _GetShortFlags(flag_names)
+    for flag in flags:
       if isinstance(flag, docstrings.KwargInfo):
+        if flag.name[0] in unique_short_flags:
+          short_name = flag.name[0]
+          flag_string = f'-{short_name}, --{flag.name}'
+        else:
+          flag_string = f'--{flag.name}'
+
         flag_item = _CreateFlagItem(
             flag.name, docstring_info, spec,
-            flag_string=flag_string.format(name=flag.name))
+            flag_string=flag_string)
         documented_kwargs.append(flag_item)
     if documented_kwargs:
       # Separate documented kwargs from other flags using a message
@@ -313,9 +343,9 @@ def _GetArgsAndFlagsString(spec, metadata):
                      for arg in args_with_no_defaults]
     else:
       arg_strings = [
-          '--{arg}={arg_upper}'.format(
-              arg=arg, arg_upper=formatting.Underline(arg.upper()))
-          for arg in args_with_no_defaults]
+          f'--{arg}={formatting.Underline(arg.upper())}'
+          for arg in args_with_no_defaults
+      ]
     arg_and_flag_strings.extend(arg_strings)
 
   # If there are any arguments that are treated as flags:
@@ -323,8 +353,8 @@ def _GetArgsAndFlagsString(spec, metadata):
     arg_and_flag_strings.append('<flags>')
 
   if spec.varargs:
-    varargs_string = '[{varargs}]...'.format(
-        varargs=formatting.Underline(spec.varargs.upper()))
+    varargs_underlined = formatting.Underline(spec.varargs.upper())
+    varargs_string = f'[{varargs_underlined}]...'
     arg_and_flag_strings.append(varargs_string)
 
   return ' '.join(arg_and_flag_strings)
@@ -367,7 +397,7 @@ def _GetActionsGroupedByKind(component, verbose=False):
     if component_len < 10:
       indexes.Add(name=', '.join(str(x) for x in range(component_len)))
     else:
-      indexes.Add(name='0..{max}'.format(max=component_len-1))
+      indexes.Add(name=f'0..{component_len-1}')
 
   return [groups, commands, values, indexes]
 
@@ -381,11 +411,9 @@ def _GetCurrentCommand(trace=None, include_separators=True):
   return current_command
 
 
-def _CreateOutputSection(name, content):
-  return """{name}
-{content}""".format(
-    name=formatting.Bold(name),
-    content=formatting.Indent(content, SECTION_INDENTATION))
+def _CreateOutputSection(name: str, content: str) -> str:
+  return f"""{formatting.Bold(name)}
+{formatting.Indent(content, SECTION_INDENTATION)}"""
 
 
 def _CreateArgItem(arg, docstring_info, spec):
@@ -396,7 +424,7 @@ def _CreateArgItem(arg, docstring_info, spec):
     docstring_info: A docstrings.DocstringInfo namedtuple with information about
       the containing function's docstring.
     spec: An instance of fire.inspectutils.FullArgSpec, containing type and
-     default information about the arguments to a callable.
+      default information about the arguments to a callable.
 
   Returns:
     A string to be used in constructing the help screen for the function.
@@ -411,7 +439,7 @@ def _CreateArgItem(arg, docstring_info, spec):
   arg_string = formatting.BoldUnderline(arg.upper())
 
   arg_type = _GetArgType(arg, spec)
-  arg_type = 'Type: {}'.format(arg_type) if arg_type else ''
+  arg_type = f'Type: {arg_type}' if arg_type else ''
   available_space = max_str_length - len(arg_type)
   arg_type = (
       formatting.EllipsisTruncate(arg_type, available_space, max_str_length))
@@ -422,7 +450,7 @@ def _CreateArgItem(arg, docstring_info, spec):
 
 
 def _CreateFlagItem(flag, docstring_info, spec, required=False,
-                    flag_string=None):
+                    flag_string=None, short_arg=False):
   """Returns a string describing a flag using docstring and FullArgSpec info.
 
   Args:
@@ -434,6 +462,7 @@ def _CreateFlagItem(flag, docstring_info, spec, required=False,
     required: Whether the flag is required.
     flag_string: If provided, use this string for the flag, rather than
       constructing one from the flag name.
+    short_arg: Whether the flag has a short variation or not.
   Returns:
     A string to be used in constructing the help screen for the function.
   """
@@ -449,12 +478,13 @@ def _CreateFlagItem(flag, docstring_info, spec, required=False,
   description = _GetArgDescription(flag, docstring_info)
 
   if not flag_string:
-    flag_string_template = '--{flag_name}={flag_name_upper}'
-    flag_string = flag_string_template.format(
-        flag_name=flag,
-        flag_name_upper=formatting.Underline(flag.upper()))
+    flag_name_upper = formatting.Underline(flag.upper())
+    flag_string = f'--{flag}={flag_name_upper}'
   if required:
     flag_string += ' (required)'
+  if short_arg:
+    short_flag = flag[0]
+    flag_string = f'-{short_flag}, {flag_string}'
 
   arg_type = _GetArgType(flag, spec)
   arg_default = _GetArgDefault(flag, spec)
@@ -462,14 +492,14 @@ def _CreateFlagItem(flag, docstring_info, spec, required=False,
   # We need to handle the case where there is a default of None, but otherwise
   # the argument has another type.
   if arg_default == 'None':
-    arg_type = 'Optional[{}]'.format(arg_type)
+    arg_type = f'Optional[{arg_type}]'
 
-  arg_type = 'Type: {}'.format(arg_type) if arg_type else ''
+  arg_type = f'Type: {arg_type}' if arg_type else ''
   available_space = max_str_length - len(arg_type)
   arg_type = (
       formatting.EllipsisTruncate(arg_type, available_space, max_str_length))
 
-  arg_default = 'Default: {}'.format(arg_default) if arg_default else ''
+  arg_default = f'Default: {arg_default}' if arg_default else ''
   available_space = max_str_length - len(arg_default)
   arg_default = (
       formatting.EllipsisTruncate(arg_default, available_space, max_str_length))
@@ -495,9 +525,7 @@ def _GetArgType(arg, spec):
   if arg in spec.annotations:
     arg_type = spec.annotations[arg]
     try:
-      if sys.version_info[0:2] >= (3, 3):
-        return arg_type.__qualname__
-      return arg_type.__name__
+      return arg_type.__qualname__
     except AttributeError:
       # Some typing objects, such as typing.Union do not have either a __name__
       # or __qualname__ attribute.
@@ -524,21 +552,23 @@ def _GetArgDefault(flag, spec):
   for arg, default in zip(args_with_defaults, spec.defaults):
     if arg == flag:
       return repr(default)
+  if flag in spec.kwonlydefaults:
+    return repr(spec.kwonlydefaults[flag])
   return ''
 
 
 def _CreateItem(name, description, indent=2):
   if not description:
     return name
-  return """{name}
-{description}""".format(name=name,
-                        description=formatting.Indent(description, indent))
+  description = formatting.Indent(description, indent)
+  return f"""{name}
+{description}"""
 
 
 def _GetArgDescription(name, docstring_info):
   if docstring_info.args:
     for arg_in_docstring in docstring_info.args:
-      if arg_in_docstring.name in (name, '*' + name, '**' + name):
+      if arg_in_docstring.name in (name, f'*{name}', f'**{name}'):
         return arg_in_docstring.description
   return None
 
@@ -584,9 +614,9 @@ def _ValuesUsageDetailsSection(component, values):
 
 
 def _NewChoicesSection(name, choices):
+  name_formatted = formatting.Bold(formatting.Underline(name))
   return _CreateItem(
-      '{name} is one of the following:'.format(
-          name=formatting.Bold(formatting.Underline(name))),
+      f'{name_formatted} is one of the following:',
       '\n' + '\n\n'.join(choices),
       indent=1)
 
@@ -602,11 +632,6 @@ def UsageText(component, trace=None, verbose=False):
   Returns:
     String suitable for display in an error screen.
   """
-  output_template = """Usage: {continued_command}
-{availability_lines}
-For detailed information on this command, run:
-  {help_command}"""
-
   # Get the command so far:
   if trace:
     command = trace.GetCommand()
@@ -650,15 +675,16 @@ For detailed information on this command, run:
       + '--help'
   )
 
-  return output_template.format(
-      continued_command=continued_command,
-      availability_lines=''.join(availability_lines),
-      help_command=help_command)
+  return f"""Usage: {continued_command}
+{''.join(availability_lines)}
+For detailed information on this command, run:
+  {help_command}"""
 
 
 def _GetPossibleActionsUsageString(possible_actions):
   if possible_actions:
-    return '<{actions}>'.format(actions='|'.join(possible_actions))
+    actions_str = '|'.join(possible_actions)
+    return f'<{actions_str}>'
   return None
 
 
@@ -667,7 +693,7 @@ def _UsageAvailabilityLines(actions_grouped_by_kind):
   for action_group in actions_grouped_by_kind:
     if action_group.members:
       availability_line = _CreateAvailabilityLine(
-          header='available {plural}:'.format(plural=action_group.plural),
+          header=f'available {action_group.plural}:',
           items=action_group.names
       )
       availability_lines.append(availability_line)
@@ -683,7 +709,7 @@ def _GetCallableUsageItems(spec, metadata):
   accepts_positional_args = metadata.get(decorators.ACCEPTS_POSITIONAL_ARGS)
 
   if not accepts_positional_args:
-    items = ['--{arg}={upper}'.format(arg=arg, upper=arg.upper())
+    items = [f'--{arg}={arg.upper()}'
              for arg in args_with_no_defaults]
   else:
     items = [arg.upper() for arg in args_with_no_defaults]
@@ -693,14 +719,14 @@ def _GetCallableUsageItems(spec, metadata):
     items.append('<flags>')
 
   if spec.varargs:
-    items.append('[{varargs}]...'.format(varargs=spec.varargs.upper()))
+    items.append(f'[{spec.varargs.upper()}]...')
 
   return items
 
 
 def _KeywordOnlyArguments(spec, required=True):
   return (flag for flag in spec.kwonlyargs
-          if required == (flag in spec.kwonlydefaults))
+          if required != (flag in spec.kwonlydefaults))
 
 
 def _GetCallableAvailabilityLines(spec):
@@ -708,10 +734,10 @@ def _GetCallableAvailabilityLines(spec):
   args_with_defaults = spec.args[len(spec.args) - len(spec.defaults):]
 
   # TODO(dbieber): Handle args_with_no_defaults if not accepts_positional_args.
-  optional_flags = [('--' + flag) for flag in itertools.chain(
+  optional_flags = [f'--{flag}' for flag in itertools.chain(
       args_with_defaults, _KeywordOnlyArguments(spec, required=False))]
   required_flags = [
-      ('--' + flag) for flag in _KeywordOnlyArguments(spec, required=True)
+      f'--{flag}' for flag in _KeywordOnlyArguments(spec, required=True)
   ]
 
   # Flags section:
@@ -744,7 +770,7 @@ def _CreateAvailabilityLine(header, items,
   return indented_header + indented_items_text[len(indented_header):] + '\n'
 
 
-class ActionGroup(object):
+class ActionGroup:
   """A group of actions of the same kind."""
 
   def __init__(self, name, plural):

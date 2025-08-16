@@ -25,7 +25,13 @@ def identity(arg1, arg2: int, arg3=10, arg4: int = 20, *arg5,
   return arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10
 
 
-class KeywordOnly(object):
+class HelpTextComponent:
+
+  def identity(self, *, alpha, beta='0'):
+    return alpha, beta
+
+
+class KeywordOnly:
 
   def double(self, *, count):
     return count * 2
@@ -37,7 +43,7 @@ class KeywordOnly(object):
     print("x: " + x)
 
 
-class LruCacheDecoratedMethod(object):
+class LruCacheDecoratedMethod:
 
   @functools.lru_cache()
   def lru_cache_in_class(self, arg1):
@@ -49,14 +55,13 @@ def lru_cache_decorated(arg1):
   return arg1
 
 
-class WithAsyncio(object):
+class WithAsyncio:
 
-  @asyncio.coroutine
-  def double(self, count=0):
+  async def double(self, count=0):
     return 2 * count
 
 
-class WithTypes(object):
+class WithTypes:
   """Class with functions that have default arguments and types."""
 
   def double(self, count: float) -> float:
@@ -78,7 +83,7 @@ class WithTypes(object):
     return long_obj
 
 
-class WithDefaultsAndTypes(object):
+class WithDefaultsAndTypes:
   """Class with functions that have default arguments and types."""
 
   def double(self, count: float = 0) -> float:

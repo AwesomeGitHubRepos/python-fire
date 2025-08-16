@@ -14,17 +14,12 @@
 
 """Tests for the core module."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from unittest import mock
 
 from fire import core
 from fire import test_components as tc
 from fire import testutils
 from fire import trace
-import mock
-
-import six
 
 
 class CoreTest(testutils.BaseTestCase):
@@ -194,16 +189,38 @@ class CoreTest(testutils.BaseTestCase):
         7,
     )
 
-  @testutils.skipIf(six.PY2, 'lru_cache is Python 3 only.')
+  def testCustomSerialize(self):
+    def serialize(x):
+      if isinstance(x, list):
+        return ', '.join(str(xi) for xi in x)
+      if isinstance(x, dict):
+        return ', '.join('{}={!r}'.format(k, v) for k, v in sorted(x.items()))
+      if x == 'special':
+        return ['SURPRISE!!', "I'm a list!"]
+      return x
+
+    ident = lambda x: x
+
+    with self.assertOutputMatches(stdout='a, b', stderr=None):
+      _ = core.Fire(ident, command=['[a,b]'], serialize=serialize)
+    with self.assertOutputMatches(stdout='a=5, b=6', stderr=None):
+      _ = core.Fire(ident, command=['{a:5,b:6}'], serialize=serialize)
+    with self.assertOutputMatches(stdout='asdf', stderr=None):
+      _ = core.Fire(ident, command=['asdf'], serialize=serialize)
+    with self.assertOutputMatches(
+        stdout="SURPRISE!!\nI'm a list!\n", stderr=None):
+      _ = core.Fire(ident, command=['special'], serialize=serialize)
+    with self.assertRaises(core.FireError):
+      core.Fire(ident, command=['asdf'], serialize=55)
+
   def testLruCacheDecoratorBoundArg(self):
     self.assertEqual(
-        core.Fire(tc.py3.LruCacheDecoratedMethod,  # pytype: disable=module-attr
+        core.Fire(tc.py3.LruCacheDecoratedMethod,
                   command=['lru_cache_in_class', 'foo']), 'foo')
 
-  @testutils.skipIf(six.PY2, 'lru_cache is Python 3 only.')
   def testLruCacheDecorator(self):
     self.assertEqual(
-        core.Fire(tc.py3.lru_cache_decorated,  # pytype: disable=module-attr
+        core.Fire(tc.py3.lru_cache_decorated,
                   command=['foo']), 'foo')
 
 

@@ -30,7 +30,7 @@ the program to the command line.
 import fire
 
 def hello(name):
-  return 'Hello {name}!'.format(name=name)
+  return f'Hello {name}!'
 
 if __name__ == '__main__':
   fire.Fire()
@@ -52,7 +52,7 @@ command line.
 import fire
 
 def hello(name):
-  return 'Hello {name}!'.format(name=name)
+  return f'Hello {name}!'
 
 if __name__ == '__main__':
   fire.Fire(hello)
@@ -76,7 +76,7 @@ We can alternatively write this program like this:
 import fire
 
 def hello(name):
-  return 'Hello {name}!'.format(name=name)
+  return f'Hello {name}!'
 
 def main():
   fire.Fire(hello)
@@ -93,7 +93,7 @@ then simply this:
 import fire
 
 def hello(name):
-  return 'Hello {name}!'.format(name=name)
+  return f'Hello {name}!'
 
 def main():
   fire.Fire(hello)
@@ -105,7 +105,7 @@ If you have a file `example.py` that doesn't even import fire:
 
 ```python
 def hello(name):
-  return 'Hello {name}!'.format(name=name)
+  return f'Hello {name}!'
 ```
 
 Then you can use it with Fire like this:
@@ -318,9 +318,9 @@ class Pipeline(object):
     self.digestion = DigestionStage()
 
   def run(self):
-    self.ingestion.run()
-    self.digestion.run()
-    return 'Pipeline complete'
+    ingestion_output = self.ingestion.run()
+    digestion_output = self.digestion.run()
+    return [ingestion_output, digestion_output]
 
 if __name__ == '__main__':
   fire.Fire(Pipeline)
@@ -589,6 +589,25 @@ default values that you don't want to specify. It is also important to remember
 to change the separator if you want to pass `-` as an argument.
 
 
+##### Async Functions
+
+Fire supports calling async functions too. Here's a simple example.
+
+```python
+import asyncio
+
+async def count_to_ten():
+  for i in range(1, 11):
+    await asyncio.sleep(1)
+    print(i)
+
+if __name__ == '__main__':
+  fire.Fire(count_to_ten)
+```
+
+Whenever fire encounters a coroutine function, it runs it, blocking until it completes.
+
+
 ### Argument Parsing
 
 The types of the arguments are determined by their values, rather than by the
@@ -742,7 +761,18 @@ The complete set of flags available is shown below, in the reference section.
 | [Trace](using-cli.md#trace-flag) | `command -- --trace` | Gets a Fire trace for the command.
 | [Verbose](using-cli.md#verbose-flag) | `command -- --verbose` | Include private members in the output.
 
-_Note that flags are separated from the Fire command by an isolated `--` arg._
+_Note that flags are separated from the Fire command by an isolated `--` arg.
+Help is an exception; the isolated `--` is optional for getting help._
+
+
+##### Arguments for Calling fire.Fire()
+
+| Argument  | Usage                     | Notes                                |
+| --------- | ------------------------- | ------------------------------------ |
+| component | `fire.Fire(component)`    | If omitted, defaults to a dict of all locals and globals. |
+| command   | `fire.Fire(command='hello --name=5')` | Either a string or a list of arguments. If a string is provided, it is split to determine the arguments. If a list or tuple is provided, they are the arguments. If `command` is omitted, then `sys.argv[1:]` (the arguments from the command line) are used by default. |
+| name      | `fire.Fire(name='tool')`  | The name of the CLI, ideally the name users will enter to run the CLI. This name will be used in the CLI's help screens. If the argument is omitted, it will be inferred automatically.|
+| serialize | `fire.Fire(serialize=custom_serializer)` | If omitted, simple types are serialized via their builtin str method, and any objects that define a custom `__str__` method are serialized with that. If specified, all objects are serialized to text via the provided method. |
 
 
 ### Disclaimer
